@@ -2,1124 +2,886 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>钢铁洪流 · 坦克大战</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>真人破冰 Bingo</title>
+    
+    <!-- 引入 Vue 3 (Composition API) 与 Tailwind CSS -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Confetti 粒子特效 -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
     <style>
-        :root {
-            --neon-blue: #00f3ff;
-            --neon-orange: #ff7b00;
-            --neon-red: #ff003c;
-            --neon-green: #00ff66;
-            --bg-color: #050510;
+        /* 基础与移动端适配重置 */
+        body {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            background: #05050a;
+            overscroll-behavior-y: none;
         }
-        body, html {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            background-color: var(--bg-color); color: white;
-            font-family: 'Courier New', Courier, monospace;
-            overflow: hidden; user-select: none;
+        
+        /* 玻璃拟物化卡片 */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 40px rgba(31, 38, 135, 0.05);
         }
-        #gameCanvas {
-            display: block; margin: 0 auto;
-            background: #0a0a1a;
-            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+
+        /* 游戏网格状态样式 */
+        .cell-transition {
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
-        .ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; display: flex; flex-direction: column;
+        .bingo-cell-empty {
+            background: rgba(241, 245, 249, 0.7);
+            border: 2px dashed #cbd5e1;
         }
-        #hud {
-            padding: 15px; display: flex; justify-content: space-between;
-            text-shadow: 0 0 10px var(--neon-blue); font-weight: bold; font-size: 18px;
+        .bingo-cell-matched {
+            background: #ffffff;
+            border: 2px solid #818cf8;
+            box-shadow: 0 4px 15px rgba(129, 140, 248, 0.2);
+            transform: scale(1.02);
+        }
+        .bingo-cell-locked {
+            background: rgba(148, 163, 184, 0.22);
+            border: 2px dashed #94a3b8;
+        }
+        .bingo-line-glow {
+            animation: pulse-glow 2s infinite;
+            border-color: #fbbf24 !important; 
+            background: #fffbeb !important;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(251, 191, 36, 0.4); }
+            50% { box-shadow: 0 0 25px rgba(251, 191, 36, 0.8); }
+        }
+
+        /* 隐藏滚动条 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Vue 动画过渡效果 */
+        .modal-enter-active, .modal-leave-active { transition: opacity 0.3s ease; }
+        .modal-enter-from, .modal-leave-to { opacity: 0; }
+        
+        .slide-enter-active, .slide-leave-active { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
+        .slide-enter-from, .slide-leave-to { transform: translateY(100%); }
+
+        .toast-enter-active, .toast-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(-50%, -20px) scale(0.95); }
+
+        /* ===== Uiverse.io 数字矩阵背景 (by rikku94-lab) ===== */
+        .jp-matrix {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 0;
             pointer-events: none;
+            background-color: #05050a;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            grid-auto-rows: 40px;
+            min-width: 1920px;
+            min-height: 1080px;
+            font-size: 32px;
+            color: rgba(0, 150, 255, 0.4);
+            font-family: "Courier New", Courier, monospace;
+            justify-content: center;
+            align-content: center;
         }
-        #scoreDisplay { transition: color 0.3s, text-shadow 0.3s, transform 0.15s; display: inline-block; }
-        @keyframes pulseReady {
-            0%, 100% { color: var(--neon-blue); text-shadow: 0 0 10px var(--neon-blue); }
-            50% { color: #fff; text-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue); }
+
+        .jp-matrix > span {
+            text-align: center;
+            text-shadow: 0 0 5px rgba(0, 150, 255, 0.5);
+            user-select: none;
+            transition:
+                color 0.5s,
+                text-shadow 0.5s;
+            line-height: 1;
         }
-        .ult-ready { animation: pulseReady 0.8s infinite; }
-        .screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 5, 16, 0.85); display: flex;
-            flex-direction: column; justify-content: center; align-items: center;
-            pointer-events: auto; backdrop-filter: blur(5px);
+
+        .jp-matrix > span:nth-child(19n + 2) {
+            animation: smooth-pulse 3.5s ease-in-out infinite 0.2s;
         }
-        .hidden { display: none !important; }
-        h1 {
-            font-size: 4rem; text-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue);
-            margin-bottom: 10px; text-align: center; color: var(--neon-blue);
+
+        .jp-matrix > span:nth-child(29n + 1) {
+            animation: smooth-pulse 4.1s ease-in-out infinite 0.7s;
         }
-        h2 { color: var(--neon-red); text-shadow: 0 0 20px var(--neon-red); font-size: 3rem; }
-        button {
-            background: transparent; border: 2px solid var(--neon-blue);
-            color: var(--neon-blue); padding: 15px 40px; font-size: 1.5rem;
-            cursor: pointer; transition: all 0.3s; text-transform: uppercase;
-            box-shadow: 0 0 15px inset rgba(0, 243, 255, 0.3); font-family: inherit;
-            margin-top: 20px;
+
+        .jp-matrix > span:nth-child(11n) {
+            color: rgba(100, 200, 255, 0.7);
+            animation: smooth-pulse 2.9s ease-in-out infinite 1.1s;
         }
-        button:hover { background: var(--neon-blue); color: #000; box-shadow: 0 0 30px var(--neon-blue); }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-        .stats { margin-top: 20px; font-size: 1.2rem; color: #ccc; text-align: center; }
-        
-        /* 移动端虚拟按键 */
-        #mobile-controls {
-            position: absolute; bottom: 20px; width: 100%; height: 150px;
-            pointer-events: auto; display: none; /* 仅移动端显示 */
+
+        .jp-matrix > span:nth-child(37n + 10) {
+            animation: smooth-pulse 5.3s ease-in-out infinite 1.5s;
         }
-        .d-pad { position: absolute; left: 20px; bottom: 20px; width: 120px; height: 120px; }
-        .btn-action { position: absolute; right: 20px; bottom: 20px; width: 80px; height: 80px; border-radius: 50%; background: rgba(0,243,255,0.2); border: 2px solid var(--neon-blue); color: var(--neon-blue); font-size: 20px; display:flex; justify-content:center; align-items:center; box-shadow: 0 0 10px var(--neon-blue); }
-        .btn-skill { right: 120px; bottom: 40px; width: 60px; height: 60px; border-color: var(--neon-orange); color: var(--neon-orange); box-shadow: 0 0 10px var(--neon-orange); }
-        .dir-btn { position: absolute; width: 40px; height: 40px; background: rgba(255,255,255,0.1); border: 1px solid #555; border-radius: 5px; }
-        #up { top: 0; left: 40px; } #down { bottom: 0; left: 40px; } #left { top: 40px; left: 0; } #right { top: 40px; right: 0; }
-        
-        @media (max-width: 768px) { #mobile-controls { display: block; } h1 { font-size: 2.5rem; } }
+
+        .jp-matrix > span:nth-child(41n + 1) {
+            animation: smooth-pulse 3.9s ease-in-out infinite 0.4s;
+        }
+
+        .jp-matrix > span:nth-child(17n + 9) {
+            animation: smooth-pulse 2.8s ease-in-out infinite 0.9s;
+        }
+
+        .jp-matrix > span:nth-child(23n + 18) {
+            animation: smooth-pulse 4.3s ease-in-out infinite 1.3s;
+        }
+
+        .jp-matrix > span:nth-child(31n + 4) {
+            animation: smooth-pulse 5.6s ease-in-out infinite 0.1s;
+        }
+
+        .jp-matrix > span:nth-child(43n + 20) {
+            animation: smooth-pulse 3.6s ease-in-out infinite 1.8s;
+        }
+
+        .jp-matrix > span:nth-child(13n + 6) {
+            animation: smooth-pulse 3.2s ease-in-out infinite 1.2s;
+        }
+
+        .jp-matrix > span:nth-child(53n + 5) {
+            animation: smooth-pulse 4.9s ease-in-out infinite 0.5s;
+        }
+
+        .jp-matrix > span:nth-child(47n + 15) {
+            animation: smooth-pulse 5.9s ease-in-out infinite 1s;
+        }
+
+        @keyframes smooth-pulse {
+            0%,
+            100% {
+                color: rgba(0, 150, 255, 0.4);
+                text-shadow: 0 0 5px rgba(0, 150, 255, 0.5);
+            }
+
+            30% {
+                color: rgba(100, 200, 255, 1);
+                text-shadow:
+                    0 0 10px rgba(100, 200, 255, 1),
+                    0 0 15px rgba(100, 200, 255, 1);
+            }
+
+            50% {
+                color: rgba(255, 105, 180, 1);
+                text-shadow:
+                    0 0 10px rgba(255, 105, 180, 1),
+                    0 0 15px rgba(255, 105, 180, 1);
+            }
+
+            70% {
+                color: #ffffff;
+                text-shadow:
+                    0 0 10px #fff,
+                    0 0 15px #fff,
+                    0 0 20px #fff;
+            }
+        }
+
+        /* ===== Uiverse.io 通关星辰 preloader (by narmesh_sah) ===== */
+        .fanfare-burst {
+            position: absolute;
+            width: min(72vw, 360px);
+            aspect-ratio: 1;
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .fanfare-burst.is-done {
+            opacity: 0;
+            transform: scale(1.6);
+        }
+
+        .preloader {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            filter: drop-shadow(0 0 2px #fff);
+        }
+
+        .crack {
+            position: absolute;
+            width: 10%;
+            aspect-ratio: 1;
+            background-color: #fef3fc;
+            clip-path: polygon(
+                50% 0%,
+                61% 35%,
+                98% 35%,
+                68% 57%,
+                79% 91%,
+                50% 70%,
+                21% 91%,
+                32% 57%,
+                2% 35%,
+                39% 35%
+            );
+            animation: rotate 6s infinite;
+        }
+
+        .crack2 {
+            width: 12%;
+            animation-delay: 1s;
+        }
+        .crack3 {
+            width: 14%;
+            animation-delay: 1.5s;
+        }
+        .crack4 {
+            width: 16%;
+            animation-delay: 2s;
+        }
+        .crack5 {
+            width: 18%;
+            animation-delay: 2.5s;
+        }
+
+        @keyframes rotate {
+            to {
+                rotate: 360deg;
+            }
+        }
+
+        /* ===== 大大的 BINGO 弹出 ===== */
+        .bingo-logo {
+            position: absolute;
+            width: min(84vw, 580px);
+            max-height: 62vh;
+            object-fit: contain;
+            pointer-events: none;
+            filter: drop-shadow(0 12px 34px rgba(255, 170, 0, 0.55));
+            animation: bingo-pop 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        @keyframes bingo-pop {
+            0% {
+                opacity: 0;
+                transform: scale(0.2) rotate(-14deg);
+            }
+            60% {
+                opacity: 1;
+                transform: scale(1.18) rotate(4deg);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1) rotate(0deg);
+            }
+        }
     </style>
 </head>
-<body>
+<body class="text-slate-800 font-sans antialiased fixed inset-0 overflow-hidden">
+<!-- 数字矩阵背景层 (Uiverse.io jp-matrix) -->
+<div class="jp-matrix" id="matrix-bg" aria-hidden="true"></div>
+<div id="app" class="h-full w-full flex flex-col relative overflow-hidden z-10">
 
-<canvas id="gameCanvas"></canvas>
+    <!-- 顶栏 -->
+    <header class="px-5 py-4 flex justify-between items-center z-10 glass-card mx-4 mt-4 rounded-2xl">
+        <div>
+            <h1 class="text-xl font-black bg-gradient-to-r from-indigo-500 to-purple-600 bg-clip-text text-transparent tracking-tight">破冰 Bingo</h1>
+            <p class="text-[11px] text-slate-500 mt-0.5 font-medium">寻找对应特质的同学，连成一线！</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="showRules = true" class="p-2.5 bg-white/80 rounded-full text-slate-600 shadow-sm active:scale-95 transition-transform" title="游戏规则">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </button>
+            <button @click="showResetConfirm = true" class="p-2.5 bg-white/80 rounded-full text-slate-600 shadow-sm active:scale-95 transition-transform">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+        </div>
+    </header>
 
-<div class="ui-layer">
-    <div id="hud">
-        <div id="hpDisplay">HP: ❤️❤️❤️</div>
-        <div>分数: <span id="scoreDisplay" style="color: var(--neon-orange)">0</span></div>
-        <div id="baseDisplay" style="color: var(--neon-green)">基地: 🟢🟢🟢</div>
-        <div id="statusDisplay">大招: 就绪(E)</div>
-    </div>
-</div>
+    <!-- 游戏规则提醒 -->
+    <transition name="modal">
+        <div v-if="showRules" class="px-4 z-10 -mt-1">
+            <div class="glass-card rounded-2xl px-4 py-3 flex items-start gap-3 relative">
+                <div class="text-indigo-500 mt-0.5 shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                </div>
+                <div class="flex-1 text-[12px] text-slate-600 leading-relaxed pr-5">
+                    <p class="font-black text-slate-700 mb-1">游戏规则</p>
+                    <p>· 点开格子，找到 <b class="text-indigo-600">真正拥有该特质</b> 的同学填入</p>
+                    <p>· 每格最多尝试 <b class="text-rose-500">3 次</b>，三次全错将 <b class="text-rose-500">永久锁死</b> 该格</p>
+                    <p>· 任意横 / 竖 / 斜 连成一线即达成 Bingo</p>
+                </div>
+                <button @click="dismissRules" class="absolute top-2.5 right-2.5 text-slate-400 active:scale-90 transition-transform">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
+            </div>
+        </div>
+    </transition>
 
-<div id="startScreen" class="screen">
-    <h1>钢铁洪流<br><span style="font-size: 2rem; color: #fff;">科技风融合版</span></h1>
-    <p>WASD移动 | 鼠标瞄准/左键射击 | E键大招 | P键暂停</p>
-    <button onclick="startGame()">启动引擎</button>
-    <button onclick="startDemo()" style="border-color: var(--neon-green); color: var(--neon-green); box-shadow: 0 0 15px inset rgba(0,255,100,0.3);">光束演示</button>
-    <div style="position: absolute; bottom: 30px; right: 40px; text-align: right;">
-        <div style="font-size: 3rem; font-weight: 900; color: var(--neon-blue); text-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue); letter-spacing: 8px; font-family: 'Courier New', monospace;">JYH</div>
-        <div style="font-size: 0.8rem; color: rgba(0,243,255,0.5); margin-top: 4px; letter-spacing: 2px;">独立作品 · 原创标识</div>
-    </div>
-</div>
+    <!-- 顶部 Toast 提示 -->
+    <transition name="toast">
+        <div v-if="toastMsg" class="fixed top-12 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 bg-slate-800/95 text-white text-sm font-medium rounded-full shadow-2xl backdrop-blur-md text-center whitespace-nowrap border border-slate-700">
+            {{ toastMsg }}
+        </div>
+    </transition>
 
-<div id="gameOverScreen" class="screen hidden">
-    <h2 id="endTitle">系统瘫痪</h2>
-    <div class="stats">
-        <p>最终得分: <span id="finalScore" style="color: var(--neon-orange); font-size: 2rem;">0</span></p>
-        <p>历史最高: <span id="highScore">0</span></p>
-    </div>
-    <button onclick="resetGame()">重新部署</button>
-</div>
+    <!-- 主 Bingo 矩阵 -->
+    <main class="flex-1 flex flex-col items-center justify-center p-5 z-10">
+        <div class="grid grid-cols-3 gap-3 w-full max-w-sm aspect-square mx-auto relative">
+            <div v-for="(cell, index) in grid" :key="index"
+                 @click="openSelectModal(index)"
+                 class="cell-transition flex flex-col items-center justify-center p-2 rounded-2xl relative h-full w-full"
+                 :class="[
+                     cell.locked ? 'bingo-cell-locked cursor-not-allowed' : (cell.matched ? 'bingo-cell-matched cursor-pointer' : 'bingo-cell-empty cursor-pointer'),
+                     isWinningCell(index) ? 'bingo-line-glow z-10' : ''
+                 ]">
+                
+                <!-- 特质描述文字 -->
+                <div class="text-[13px] font-bold text-center break-words leading-snug px-1"
+                     :class="cell.matched ? 'text-indigo-900 mb-4' : (cell.locked ? 'text-slate-400 mb-4 line-through' : 'text-slate-600')">
+                    {{ cell.hobby }}
+                </div>
+                
+                <!-- 已匹配状态徽章 -->
+                <div v-if="cell.matched" class="absolute bottom-2.5 px-3 py-1 bg-indigo-500 text-white text-[11px] font-black rounded-full truncate max-w-[85%] shadow-md tracking-wider">
+                    {{ cell.selectedName }}
+                </div>
+                
+                <!-- 已锁死提示 -->
+                <div v-else-if="cell.locked" class="absolute bottom-2.5 flex items-center gap-1 text-slate-500">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <span class="text-[11px] font-black">已锁死</span>
+                </div>
+                
+                <!-- 未匹配：剩余尝试次数 -->
+                <div v-else class="absolute bottom-2.5 text-[10px] font-bold text-slate-400">
+                    可试 {{ 3 - cell.attempts }} 次
+                </div>
+            </div>
+        </div>
+        
+        <!-- 计时器与兑奖入口 -->
+        <div class="mt-10 flex flex-col items-center">
+            <div class="text-sm font-semibold text-slate-500 flex items-center gap-2 bg-white/50 px-4 py-2 rounded-full shadow-sm border border-slate-100">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                挑战用时：<span class="text-slate-700 font-mono">{{ formattedTime }}</span>
+            </div>
+            
+            <button v-if="isBingo" @click="showReward = true" class="mt-5 px-8 py-3 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-full font-black shadow-lg shadow-amber-500/30 active:scale-95 transition-transform animate-bounce">
+                出示领奖凭证
+            </button>
+        </div>
+    </main>
 
-<!-- 战败CG全屏展示 -->
-<div id="defeatCG" class="screen hidden" style="background: rgba(0,0,0,0.95); z-index: 100;">
-    <img src="战败cg.jpg" style="max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none;">
-    <div style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); color: var(--neon-red); font-size: 1.5rem; text-shadow: 0 0 20px var(--neon-red); font-family: 'Courier New', monospace; animation: blink 1s infinite;">
-        点击任意位置继续
-    </div>
-</div>
+    <!-- 选择同学弹窗 (底部抽屉) -->
+    <transition name="modal">
+        <div v-if="showModal" class="fixed inset-0 bg-slate-900/40 z-40 backdrop-blur-sm" @click="closeModal"></div>
+    </transition>
+    <transition name="slide">
+        <div v-if="showModal" class="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl z-50 flex flex-col max-h-[85vh] shadow-[0_-10px_40px_rgba(0,0,0,0.1)] pb-[env(safe-area-inset-bottom)]">
+            
+            <!-- 抽屉把手 -->
+            <div class="w-full flex justify-center pt-4 pb-2" @click="closeModal">
+                <div class="w-12 h-1.5 bg-slate-200 rounded-full"></div>
+            </div>
+            
+            <!-- 搜索头 -->
+            <div class="px-6 pb-2">
+                <h3 class="text-[17px] font-black text-slate-800 leading-tight">是谁拥有特质 <br/><span class="text-indigo-600">"{{ grid[activeCellIndex]?.hobby }}"</span>？</h3>
+                
+                <div class="mt-5 relative">
+                    <svg class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input v-model="searchQuery" type="text" placeholder="输入姓名或学号快速搜索..." 
+                           class="w-full pl-11 pr-4 py-3.5 bg-slate-100/80 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 font-medium text-slate-700 transition-all">
+                </div>
+            </div>
 
-<!-- 移动端控件 -->
-<div id="mobile-controls">
-    <div class="d-pad">
-        <div class="dir-btn" id="up" ontouchstart="keys['w']=true" ontouchend="keys['w']=false">W</div>
-        <div class="dir-btn" id="down" ontouchstart="keys['s']=true" ontouchend="keys['s']=false">S</div>
-        <div class="dir-btn" id="left" ontouchstart="keys['a']=true" ontouchend="keys['a']=false">A</div>
-        <div class="dir-btn" id="right" ontouchstart="keys['d']=true" ontouchend="keys['d']=false">D</div>
-    </div>
-    <div class="btn-action btn-skill" ontouchstart="player.useUltimate()">大招</div>
-    <div class="btn-action" ontouchstart="mouse.down=true" ontouchend="mouse.down=false">开火</div>
+            <!-- 同学列表 -->
+            <div class="flex-1 overflow-y-auto px-6 py-2 mt-2 no-scrollbar mb-2">
+                <div v-if="filteredStudents.length === 0" class="text-center text-slate-400 py-10 text-sm font-medium">
+                    🔍 没有找到匹配的同学
+                </div>
+                <div v-for="student in filteredStudents" :key="student.id"
+                     @click="selectStudent(student)"
+                     class="flex items-center justify-between p-4 mb-3 rounded-2xl border transition-colors relative overflow-hidden"
+                     :class="[
+                         isStudentSelected(student.id) 
+                             ? (grid[activeCellIndex]?.selectedId === student.id ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-100 bg-slate-50/50 opacity-40 cursor-not-allowed')
+                             : 'border-slate-100 bg-white shadow-sm active:bg-slate-50'
+                     ]">
+                    <div>
+                        <div class="font-black text-slate-800 flex items-center gap-2 text-[15px]">
+                            {{ student.name }}
+                            <span v-if="isStudentSelected(student.id) && grid[activeCellIndex]?.selectedId !== student.id" class="text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded font-bold">已在别处填入</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 mt-1 font-mono">学号: {{ student.id }}</div>
+                    </div>
+                    
+                    <!-- 选中标识 -->
+                    <div v-if="grid[activeCellIndex]?.selectedId === student.id" class="text-indigo-600 bg-indigo-100 p-1.5 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 清除按钮 (仅当已匹配时显示) -->
+            <div class="px-6 py-4 border-t border-slate-100 bg-white" v-if="grid[activeCellIndex]?.matched">
+                <button @click="clearCurrentCell" class="w-full py-3.5 rounded-xl bg-red-50 text-red-500 font-bold active:bg-red-100 transition-colors">
+                    撤销并清除该格子
+                </button>
+            </div>
+        </div>
+    </transition>
+
+    <!-- 通关动画：旋转星辰 → 大大的 BINGO -->
+    <transition name="modal">
+        <div v-if="showBingoFanfare" @click="finishFanfare"
+             class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm overflow-hidden">
+
+            <!-- Uiverse 旋转星辰 -->
+            <div class="fanfare-burst" :class="{ 'is-done': showBingoLogo }">
+                <div class="preloader">
+                    <div class="crack"></div>
+                    <div class="crack crack2"></div>
+                    <div class="crack crack3"></div>
+                    <div class="crack crack4"></div>
+                    <div class="crack crack5"></div>
+                </div>
+            </div>
+
+            <!-- 大大的 BINGO -->
+            <img v-if="showBingoLogo" src="bingo.png" class="bingo-logo" alt="BINGO!" />
+
+            <!-- 继续提示 -->
+            <p v-if="showBingoLogo" class="absolute bottom-16 left-1/2 -translate-x-1/2 whitespace-nowrap text-white/70 text-sm font-bold animate-pulse tracking-widest">
+                点击任意处领取凭证
+            </p>
+        </div>
+    </transition>
+
+    <!-- 领奖凭证卡 Modal -->
+    <transition name="modal">
+        <div v-if="showReward" class="fixed inset-0 bg-slate-900/60 z-[60] flex items-center justify-center p-6 backdrop-blur-md">
+            <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl transform transition-all">
+                <!-- 卡片头部设计 -->
+                <div class="bg-gradient-to-br from-amber-400 via-orange-400 to-rose-400 p-8 text-center relative overflow-hidden">
+                    <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 16px 16px;"></div>
+                    <h2 class="text-4xl font-black text-white relative z-10 tracking-widest drop-shadow-md italic">BINGO!</h2>
+                    <p class="text-white/90 text-sm mt-2 relative z-10 font-medium">恭喜完成破冰挑战</p>
+                </div>
+                
+                <div class="p-7">
+                    <div class="space-y-5">
+                        <div class="flex justify-between items-center border-b border-dashed border-slate-200 pb-4">
+                            <span class="text-slate-500 text-sm font-medium">挑战用时</span>
+                            <span class="text-2xl font-black text-slate-800 font-mono">{{ formattedTime }}</span>
+                        </div>
+                        <div class="border-b border-dashed border-slate-200 pb-4">
+                            <span class="text-slate-500 text-sm block mb-3 font-medium">致胜连线特质摘要</span>
+                            <div class="flex flex-wrap gap-1.5">
+                                <span v-for="(hobby, idx) in winningHobbies" :key="idx" class="inline-block px-2.5 py-1.5 bg-indigo-50 text-indigo-700 text-[11px] font-bold rounded-lg border border-indigo-100">
+                                    {{ hobby }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center pt-2">
+                            <span class="text-slate-500 text-sm font-medium">核销验证码</span>
+                            <span class="font-mono font-black text-xl text-amber-500 tracking-wider">{{ verificationCode }}</span>
+                        </div>
+                        <div class="text-center mt-6">
+                            <p class="text-[11px] text-slate-400 font-mono bg-slate-50 py-1.5 rounded-lg inline-block px-4">完成于 {{ completionTime }}</p>
+                        </div>
+                    </div>
+                    
+                    <button @click="showReward = false" class="mt-8 w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold shadow-lg active:scale-95 transition-transform text-[15px]">
+                        收下凭证
+                    </button>
+                </div>
+            </div>
+        </div>
+    </transition>
+    
+    <!-- 重置确认弹窗 -->
+    <transition name="modal">
+        <div v-if="showResetConfirm" class="fixed inset-0 bg-slate-900/50 z-[70] flex items-center justify-center p-6 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl w-full max-w-xs p-7 shadow-2xl">
+                <h3 class="text-xl font-black text-slate-800 text-center mb-2">重置卡片？</h3>
+                <p class="text-sm text-slate-500 text-center mb-8 font-medium">当前破冰进度将被清除，且重新生成新的 Bingo 题目池。</p>
+                <div class="flex gap-3">
+                    <button @click="showResetConfirm = false" class="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold active:bg-slate-200 transition-colors">
+                        手滑了
+                    </button>
+                    <button @click="executeReset" class="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold active:bg-red-600 transition-colors shadow-md shadow-red-500/20">
+                        确定重置
+                    </button>
+                </div>
+            </div>
+        </div>
+    </transition>
+
 </div>
 
 <script>
-// ================= 系统与引擎基础 =================
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-let cw, ch;
-let bgImage = new Image();
-bgImage.src = '背景图.jpg';
+    // === 数字矩阵背景填充：根据视口生成字符格 ===
+    (function buildMatrix() {
+        const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789'.split('');
+        const bg = document.getElementById('matrix-bg');
 
-function resize() {
-    cw = window.innerWidth;
-    ch = window.innerHeight;
-    canvas.width = cw;
-    canvas.height = ch;
-}
-window.addEventListener('resize', resize);
-resize();
-
-// 输入处理
-const keys = {};
-const mouse = { x: cw/2, y: ch/2, down: false };
-
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if(e.key.toLowerCase()==='p') togglePause(); if(e.key.toLowerCase()==='e') player.useUltimate(); });
-window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-window.addEventListener('mousedown', () => mouse.down = true);
-window.addEventListener('mouseup', () => mouse.down = false);
-// 触屏瞄准兼容
-window.addEventListener('touchmove', e => { 
-    if(e.touches.length > 0) {
-        mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; 
-        // 计算玩家到触摸点的角度
-        if(player) {
-            let dx = mouse.x - player.x;
-            let dy = mouse.y - player.y;
-            player.angle = Math.atan2(dy, dx);
-        }
-    }
-});
-
-// 全局变量
-let gameLoopId, gameState = 'start', isPaused = false;
-let score = 0, kills = 0, wave = 1;
-let entities = [], particles = [], bullets = [], items = [], obstacles = [];
-let player, base, boss;
-let lastTime = 0, enemySpawnTimer = 0;
-let shakeIntensity = 0, shakeDuration = 0;
-let screenFlash = 0;
-let shockRings = [];
-let damageNumbers = [];
-let prevScore = 0;
-const MAX_PARTICLES = 200;
-
-const COLORS = { blue: '#00f3ff', orange: '#ff7b00', red: '#ff003c', green: '#00ff66', purple: '#b500ff' };
-
-// ================= 数学与工具函数 =================
-const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
-const random = (min, max) => Math.random() * (max - min) + min;
-const rectIntersect = (r1, r2) => {
-    return !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
-};
-
-// ================= 游戏类定义 =================
-
-// 基础物理对象
-class GameObject {
-    constructor(x, y, r, color) {
-        this.x = x; this.y = y; this.r = r; this.color = color;
-        this.vx = 0; this.vy = 0; this.markedForDeletion = false;
-    }
-    update(dt) { this.x += this.vx; this.y += this.vy; }
-    draw(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.shadowBlur = 15; ctx.shadowColor = this.color;
-        ctx.fillStyle = this.color;
-        ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    }
-    get bounds() { return { left: this.x - this.r, right: this.x + this.r, top: this.y - this.r, bottom: this.y + this.r }; }
-}
-
-// 粒子特效系统
-class Particle extends GameObject {
-    constructor(x, y, color, vx, vy, life) {
-        super(x, y, random(2, 5), color);
-        this.vx = vx; this.vy = vy;
-        this.life = life; this.maxLife = life;
-    }
-    update(dt) {
-        super.update(dt);
-        this.vx *= 0.95; this.vy *= 0.95; // 摩擦力
-        this.life -= dt;
-        if (this.life <= 0) this.markedForDeletion = true;
-    }
-    draw(ctx) {
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.r * (this.life / this.maxLife), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-function createExplosion(x, y, color, count=15) {
-    if (particles.length >= MAX_PARTICLES) return;
-    let actual = Math.min(count, MAX_PARTICLES - particles.length);
-    for(let i=0; i<actual; i++) {
-        let angle = random(0, Math.PI * 2);
-        let speed = random(1, 5);
-        particles.push(new Particle(x, y, color, Math.cos(angle)*speed, Math.sin(angle)*speed, random(0.5, 1.5)));
-    }
-    // 冲击波环
-    if (count >= 15) {
-        shockRings.push({ x, y, radius: 0, maxRadius: count * 3, color, alpha: 0.6 });
-    }
-    // 火花
-    if (count >= 20) {
-        for (let i = 0; i < Math.floor(count / 5); i++) {
-            let angle = random(0, Math.PI * 2);
-            let speed = random(6, 10);
-            if (particles.length < MAX_PARTICLES)
-                particles.push(new Particle(x, y, '#fff', Math.cos(angle)*speed, Math.sin(angle)*speed, random(0.2, 0.5)));
-        }
-    }
-    // 全屏闪光
-    if (count >= 30) screenFlash = Math.min(screenFlash + 0.15, 0.4);
-}
-
-function triggerShake(intensity, duration) {
-    shakeIntensity = Math.max(shakeIntensity, intensity);
-    shakeDuration = Math.max(shakeDuration, duration);
-}
-
-function spawnDamageNumber(x, y, amount, color) {
-    damageNumbers.push({
-        x: x + random(-10, 10),
-        y: y,
-        text: String(amount),
-        color: color,
-        life: 0.8,
-        vy: -60
-    });
-    if (damageNumbers.length > 20) damageNumbers.shift();
-}
-
-// 障碍物 (网格地图基础)
-class Obstacle {
-    constructor(x, y, w, h, type) {
-        this.x = x; this.y = y; this.w = w; this.h = h; this.type = type; // 'brick', 'steel'
-        this.markedForDeletion = false;
-    }
-    draw(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        if(this.type === 'brick') {
-            ctx.fillStyle = '#8B4513'; ctx.shadowBlur = 0;
-            ctx.fillRect(-this.w/2, -this.h/2, this.w, this.h);
-            ctx.strokeStyle = '#A0522D'; ctx.strokeRect(-this.w/2, -this.h/2, this.w, this.h);
-        } else if (this.type === 'steel') {
-            ctx.fillStyle = '#555'; ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
-            ctx.fillRect(-this.w/2, -this.h/2, this.w, this.h);
-        }
-        ctx.restore();
-    }
-    get bounds() { return { left: this.x - this.w/2, right: this.x + this.w/2, top: this.y - this.h/2, bottom: this.y + this.h/2 }; }
-}
-
-// 基地
-class Base extends Obstacle {
-    constructor(x, y) {
-        super(x, y, 60, 60, 'base');
-        this.hp = 3; this.shield = 0;
-    }
-    draw(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.shadowBlur = 20; ctx.shadowColor = COLORS.green;
-        ctx.fillStyle = '#0f3';
-        ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(30, 20); ctx.lineTo(-30, 20); ctx.fill();
-        ctx.fillStyle = '#000'; ctx.fillText(this.hp, -5, 10);
-        if(this.shield > 0) {
-            ctx.strokeStyle = COLORS.blue; ctx.lineWidth = 3;
-            ctx.beginPath(); ctx.arc(0, 0, 45, 0, Math.PI*2); ctx.stroke();
-        }
-        ctx.restore();
-    }
-    takeDamage() {
-        if(this.shield > 0) { this.shield--; return; }
-        this.hp--;
-        triggerShake(10, 0.4);
-        createExplosion(this.x, this.y, COLORS.green, 20);
-        updateHUD();
-        if(this.hp <= 0) gameOver(false);
-    }
-}
-
-// 道具
-class Item extends GameObject {
-    constructor(x, y) {
-        super(x, y, 15, COLORS.orange);
-        const types = ['shield', 'spread', 'heal'];
-        this.type = types[Math.floor(Math.random() * types.length)];
-        if(this.type === 'shield') this.color = COLORS.blue;
-        if(this.type === 'heal') this.color = COLORS.green;
-        this.life = 10; // 10秒后消失
-    }
-    update(dt) {
-        this.life -= dt;
-        if(this.life <= 0) this.markedForDeletion = true;
-    }
-    draw(ctx) {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.shadowBlur = 15 + Math.sin(Date.now()*0.005)*5; ctx.shadowColor = this.color;
-        ctx.fillStyle = this.color;
-        ctx.fillRect(-8, -8, 16, 16);
-        ctx.fillStyle = '#fff'; ctx.font="10px Arial";
-        let txt = this.type==='shield'?'S':(this.type==='spread'?'F':'+');
-        ctx.fillText(txt, -4, 4);
-        ctx.restore();
-    }
-}
-
-// 子弹
-class Bullet extends GameObject {
-    constructor(x, y, angle, speed, color, isEnemy = false, damage = 1) {
-        super(x, y, 4, color);
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        this.isEnemy = isEnemy;
-        this.damage = damage;
-        this.tailLength = 0;
-        this.trailTimer = 0;
-    }
-    update(dt) {
-        super.update(dt);
-        this.tailLength = Math.min(this.tailLength + 800 * dt, 120);
-        this.trailTimer += dt;
-        if(this.trailTimer > 0.05 && particles.length < MAX_PARTICLES) {
-            this.trailTimer = 0;
-            particles.push(new Particle(this.x, this.y, this.color, 0, 0, 0.15));
-        }
-        if (this.x < 0 || this.x > cw || this.y < 0 || this.y > ch) this.markedForDeletion = true;
-    }
-    draw(ctx) {
-        ctx.save();
-        let angle = Math.atan2(this.vy, this.vx);
-        let tailX = this.x - Math.cos(angle) * this.tailLength;
-        let tailY = this.y - Math.sin(angle) * this.tailLength;
-        // 外层光晕
-        ctx.shadowBlur = 20; ctx.shadowColor = this.color;
-        ctx.strokeStyle = this.color; ctx.globalAlpha = 0.3; ctx.lineWidth = 8;
-        ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(this.x, this.y); ctx.stroke();
-        // 中层光束
-        ctx.globalAlpha = 0.7; ctx.lineWidth = 5;
-        ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(this.x, this.y); ctx.stroke();
-        // 内核白色光束
-        ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
-        ctx.strokeStyle = '#fff'; ctx.globalAlpha = 1; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(tailX, tailY); ctx.lineTo(this.x, this.y); ctx.stroke();
-        // 弹头光点
-        ctx.fillStyle = '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = this.color;
-        ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    }
-}
-
-// 坦克基类
-class Tank extends GameObject {
-    constructor(x, y, r, color, hp, speed) {
-        super(x, y, r, color);
-        this.maxHp = hp; this.hp = hp; this.speed = speed;
-        this.angle = 0; // 炮塔角度
-        this.bodyAngle = 0; // 车体角度
-        this.shootTimer = 0;
-        this.shield = 0;
-        this.flashTimer = 0;
-    }
-    draw(ctx) {
-        ctx.save(); ctx.translate(this.x, this.y);
-        
-        // 护盾光圈
-        if(this.shield > 0) {
-            ctx.shadowBlur = 10; ctx.shadowColor = COLORS.blue;
-            ctx.strokeStyle = COLORS.blue; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(0, 0, this.r + 8, 0, Math.PI*2); ctx.stroke();
+        function fill() {
+            const cols = Math.max(48, Math.ceil(window.innerWidth / 40));
+            const rows = Math.max(27, Math.ceil(window.innerHeight / 40));
+            const total = cols * rows;
+            let html = '';
+            for (let i = 0; i < total; i++) {
+                html += '<span>' + chars[(Math.random() * chars.length) | 0] + '</span>';
+            }
+            bg.innerHTML = html;
         }
 
-        // 车体
-        ctx.rotate(this.bodyAngle);
-        ctx.shadowBlur = 15; ctx.shadowColor = this.color;
-        ctx.strokeStyle = this.color; ctx.lineWidth = 3;
-        ctx.strokeRect(-this.r, -this.r, this.r*2, this.r*2);
-        // 履带
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-this.r-4, -this.r+2, 4, this.r*2-4);
-        ctx.fillRect(this.r, -this.r+2, 4, this.r*2-4);
-        
-        // 炮塔
-        ctx.rotate(-this.bodyAngle); // 回正
-        ctx.rotate(this.angle);
-        ctx.fillStyle = this.color;
-        ctx.beginPath(); ctx.arc(0, 0, this.r*0.6, 0, Math.PI*2); ctx.fill();
-        ctx.fillRect(0, -4, this.r*1.5, 8); // 炮管
-        ctx.restore();
-        
-        // 命中闪光
-        if (this.flashTimer > 0) {
-            ctx.save();
-            ctx.globalAlpha = this.flashTimer * 3;
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.r + 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
-    }
-    checkCollision(nx, ny) {
-        let tempBounds = { left: nx - this.r, right: nx + this.r, top: ny - this.r, bottom: ny + this.r };
-        for(let obs of obstacles) {
-            if(rectIntersect(tempBounds, obs.bounds)) return true;
-        }
-        return false;
-    }
-}
+        fill();
+        let t;
+        window.addEventListener('resize', () => {
+            clearTimeout(t);
+            t = setTimeout(fill, 200);
+        });
+    })();
 
-// 玩家
-class Player extends Tank {
-    constructor(x, y) {
-        super(x, y, 20, COLORS.blue, 5, 200);
-        this.shootInterval = 0.2; // 射击间隔
-        this.spreadTime = 0; // 火力增强剩余时间
-        this.ultCooldown = 0;
-        this.invincible = 2; // 出生无敌2秒
-    }
-    update(dt) {
-        if (this.flashTimer > 0) this.flashTimer -= dt;
-        // 移动逻辑
-        let dx = 0, dy = 0;
-        if (keys['w']) dy -= 1; if (keys['s']) dy += 1;
-        if (keys['a']) dx -= 1; if (keys['d']) dx += 1;
-        
-        if (dx !== 0 || dy !== 0) {
-            let len = Math.hypot(dx, dy);
-            dx /= len; dy /= len;
-            this.bodyAngle = Math.atan2(dy, dx);
-            let nx = this.x + dx * this.speed * dt;
-            let ny = this.y + dy * this.speed * dt;
+    const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+
+    // 根据你提供的 Excel 统计表格深度解析后构建的数据结构池
+    // 【彩蛋】：在数据里融合了你的简历特质（即兴伴奏/全栈开发）
+    const RAW_STUDENTS = [
+        { id: "2608160228", name: "袁美泽", hobbies: ["喜欢唱歌", "KTV麦霸"] },
+        { id: "2608160212", name: "李迎", hobbies: ["热爱体育竞技", "田径好手"] },
+        { id: "2608160207", name: "胡常昆", hobbies: ["单机大作玩家", "校队级篮球实力"] },
+        { id: "2608160213", name: "刘浩", hobbies: ["耳机重度依赖", "独立音乐爱好者"] },
+        { id: "2608160225", name: "肖欣泽", hobbies: ["民谣吉他手", "乐队灵魂"] },
+        { id: "2608160209", name: "李昊阳", hobbies: ["研究理论物理", "科幻迷"] },
+        { id: "2608160201", name: "陈法林", hobbies: ["羽毛球高手", "古典音乐控", "王者荣耀大神"] },
+        { id: "2608160230", name: "郑淏元", hobbies: ["近景魔术师", "扑克牌达人"] },
+        { id: "2608160206", name: "郝青贤", hobbies: ["坚持晨跑", "喜欢雨天漫步"] },
+        { id: "2608160210", name: "李景霖", hobbies: ["电竞玩家", "Steam库存大户"] },
+        { id: "2608160208", name: "贾颜颢", hobbies: ["听轻音乐", "自学钢琴即兴伴奏", "前端全栈开发"] },
+        { id: "2608160203", name: "崔元麒", hobbies: ["资深球迷", "短视频冲浪达人"] },
+        { id: "2608160221", name: "王德庆", hobbies: ["主机游戏控", "日系音乐迷", "网文小说读物者"] },
+        { id: "2608160222", name: "王谦羽", hobbies: ["剧本杀DM", "海龟汤推理", "雨天自闭症"] },
+        { id: "2608160202", name: "陈子豪", hobbies: ["火影忍者铁粉", "明日方舟刀客塔"] },
+        { id: "2608160227", name: "杨旭泽", hobbies: ["追番二次元", "流行音乐鉴赏"] },
+        { id: "2608160214", name: "刘奕琛", hobbies: ["米其林级厨艺", "电影发烧友", "喜欢下雪天"] },
+        { id: "2608160219", name: "宋文凯", hobbies: ["探索城市街区", "说走就走的旅行"] },
+        { id: "2608160204", name: "董文昱", hobbies: ["钻研家常菜", "甜品试做员"] }
+    ];
+
+    const App = {
+        setup() {
+            // 响应式状态
+            const grid = ref([]);
+            const startTime = ref(null);
+            const timerInterval = ref(null);
+            const elapsedSeconds = ref(0);
             
-            // 边界与障碍物检测
-            nx = Math.max(this.r, Math.min(cw - this.r, nx));
-            ny = Math.max(this.r, Math.min(ch - this.r, ny));
-            if(!this.checkCollision(nx, this.y)) this.x = nx;
-            if(!this.checkCollision(this.x, ny)) this.y = ny;
-
-            // 移动烟尘
-            if(Math.random()<0.3) particles.push(new Particle(this.x - Math.cos(this.bodyAngle)*this.r, this.y - Math.sin(this.bodyAngle)*this.r, '#555', 0, 0, 0.5));
-        }
-
-        // 瞄准 (如果是鼠标控制且非移动端正在拖拽时)
-        if (!('ontouchstart' in window) || mouse.down) {
-            let angleToMouse = Math.atan2(mouse.y - this.y, mouse.x - this.x);
-            this.angle = angleToMouse;
-        }
-
-        // 射击
-        this.shootTimer -= dt;
-        if (mouse.down && this.shootTimer <= 0) {
-            this.shoot();
-            this.shootTimer = this.shootInterval;
-        }
-
-        // 状态更新
-        if(this.spreadTime > 0) this.spreadTime -= dt;
-        if(this.ultCooldown > 0) this.ultCooldown -= dt;
-        if(this.invincible > 0) this.invincible -= dt;
-        updateHUD();
-    }
-    shoot() {
-        let px = this.x + Math.cos(this.angle) * this.r * 1.5;
-        let py = this.y + Math.sin(this.angle) * this.r * 1.5;
-        if(this.spreadTime > 0) {
-            bullets.push(new Bullet(px, py, this.angle - 0.2, 500, this.color));
-            bullets.push(new Bullet(px, py, this.angle, 500, this.color));
-            bullets.push(new Bullet(px, py, this.angle + 0.2, 500, this.color));
-        } else {
-            bullets.push(new Bullet(px, py, this.angle, 500, this.color));
-        }
-        createExplosion(px, py, this.color, 5); // 开火闪光
-    }
-    useUltimate() {
-        if(this.ultCooldown > 0) return;
-        this.ultCooldown = 20;
-        // 全屏震荡波
-        const steps = 63;
-        for(let i=0; i<steps; i++) {
-            let angle = (i / steps) * Math.PI * 2;
-            bullets.push(new Bullet(this.x, this.y, angle, 400, COLORS.blue, false, 5));
-        }
-        createExplosion(this.x, this.y, COLORS.blue, 50);
-        triggerShake(15, 0.5);
-    }
-    takeDamage(amt) {
-        if(this.invincible > 0) return;
-        if(this.shield > 0) { this.shield--; return; }
-        this.hp -= amt;
-        this.invincible = 1;
-        this.flashTimer = 0.12;
-        triggerShake(8, 0.3);
-        screenFlash = 0.2;
-        createExplosion(this.x, this.y, COLORS.blue, 20);
-        if(this.hp <= 0) gameOver(false);
-    }
-}
-
-// 敌人
-class Enemy extends Tank {
-    constructor(x, y, type) {
-        let r, color, hp, speed;
-        switch(type) {
-            case 'light': r=15; color=COLORS.orange; hp=1; speed=150; break;
-            case 'heavy': r=25; color=COLORS.purple; hp=5; speed=60; break;
-            default: r=20; color=COLORS.red; hp=2; speed=100; // medium
-        }
-        super(x, y, r, color, hp, speed);
-        this.type = type;
-        this.aiTimer = 0;
-        this.targetAngle = 0;
-    }
-    update(dt) {
-        if (this.flashTimer > 0) this.flashTimer -= dt;
-        if(!player) return;
-        this.aiTimer -= dt;
-        
-        // AI逻辑：追逐玩家并避障
-        let distToPlayer = dist(this.x, this.y, player.x, player.y);
-        this.angle = Math.atan2(player.y - this.y, player.x - this.x);
-
-        if(this.aiTimer <= 0) {
-            this.aiTimer = random(1, 3);
-            this.targetAngle = this.angle + random(-0.5, 0.5); // 稍微随机的移动方向
-            if(distToPlayer < 200) this.targetAngle += Math.PI; // 太近则后退
-        }
-
-        // 移动
-        let dx = Math.cos(this.targetAngle);
-        let dy = Math.sin(this.targetAngle);
-        this.bodyAngle = this.targetAngle;
-        
-        let nx = this.x + dx * this.speed * dt;
-        let ny = this.y + dy * this.speed * dt;
-        nx = Math.max(this.r, Math.min(cw - this.r, nx));
-        ny = Math.max(this.r, Math.min(ch - this.r, ny));
-        
-        if(!this.checkCollision(nx, this.y)) this.x = nx; else this.targetAngle += Math.PI/2;
-        if(!this.checkCollision(this.x, ny)) this.y = ny; else this.targetAngle += Math.PI/2;
-
-        // 射击
-        this.shootTimer -= dt;
-        if(this.shootTimer <= 0 && distToPlayer < 600) {
-            let px = this.x + Math.cos(this.angle) * this.r * 1.5;
-            let py = this.y + Math.sin(this.angle) * this.r * 1.5;
-            bullets.push(new Bullet(px, py, this.angle, 300, this.color, true));
-            this.shootTimer = (this.type==='light'?1:(this.type==='heavy'?2.5:1.5));
-        }
-    }
-}
-
-// BOSS
-class Boss extends Tank {
-    constructor(x, y) {
-        super(x, y, 50, COLORS.red, 50, 40);
-        this.phase = 1;
-        this.stateTimer = 0;
-    }
-    update(dt) {
-        if (this.flashTimer > 0) this.flashTimer -= dt;
-        if(!player) return;
-        this.stateTimer += dt;
-        
-        // 阶段判断
-        if(this.hp < 15 && this.phase < 3) { this.phase = 3; this.speed = 100; this.color = '#ff0000'; createExplosion(this.x, this.y, '#fff', 50); }
-        else if(this.hp < 30 && this.phase < 2) { this.phase = 2; }
-
-        this.angle = Math.atan2(player.y - this.y, player.x - this.x);
-        
-        // 移动
-        this.y += this.speed * dt * Math.sin(this.stateTimer); // 左右晃动前进
-        if(this.y > ch/3) this.y = ch/3; // 不太靠近基地
-        
-        this.shootTimer -= dt;
-        if(this.shootTimer <= 0) {
-            let px = this.x + Math.cos(this.angle) * this.r * 1.2;
-            let py = this.y + Math.sin(this.angle) * this.r * 1.2;
+            // 交互组件状态
+            const showModal = ref(false);
+            const activeCellIndex = ref(0);
+            const searchQuery = ref('');
             
-            if(this.phase === 1) { // 散射
-                for(let i=-2; i<=2; i++) bullets.push(new Bullet(px, py, this.angle + i*0.2, 250, this.color, true));
-                this.shootTimer = 2;
-                if(Math.random()<0.3) entities.push(new Enemy(this.x, this.y-50, 'light'));
-            } 
-            else if(this.phase === 2) { // 旋转弹幕
-                for(let i=0; i<8; i++) bullets.push(new Bullet(this.x, this.y, this.stateTimer*2 + i*Math.PI/4, 200, this.color, true));
-                this.shootTimer = 0.5;
-            }
-            else { // 狂暴：全屏乱射
-                for(let i=0; i<3; i++) bullets.push(new Bullet(this.x, this.y, random(0, Math.PI*2), 350, '#ff0', true, 2));
-                bullets.push(new Bullet(px, py, this.angle, 400, this.color, true, 2)); // 追踪一发
-                this.shootTimer = 0.3;
-            }
-        }
-    }
-    draw(ctx) {
-        super.draw(ctx);
-        // Boss专属血条显示在屏幕上方
-        ctx.save();
-        ctx.setTransform(1,0,0,1,0,0);
-        ctx.fillStyle = 'rgba(255,0,0,0.3)'; ctx.fillRect(cw/2 - 200, 20, 400, 20);
-        ctx.fillStyle = COLORS.red; ctx.shadowBlur=10; ctx.shadowColor=COLORS.red;
-        ctx.fillRect(cw/2 - 200, 20, 400 * (this.hp/this.maxHp), 20);
-        ctx.fillStyle = '#fff'; ctx.font="16px Arial"; ctx.fillText("核心机甲 [BOSS]", cw/2 - 60, 15);
-        ctx.restore();
-    }
-}
+            // 游戏进程状态
+            const isBingo = ref(false);
+            const showReward = ref(false);
+            const showResetConfirm = ref(false);
+            const winningLines = ref([]);
 
+            // 通关动画状态（旋转星辰 → 大大的 BINGO）
+            const showBingoFanfare = ref(false);
+            const showBingoLogo = ref(false);
+            let fanfareTimers = [];
+            
+            // 凭证状态
+            const verificationCode = ref('');
+            const completionTime = ref('');
+            
+            // 吐司提示状态
+            const toastMsg = ref('');
+            let toastTimer = null;
 
-// ================= 游戏核心逻辑 =================
+            // 游戏规则提醒状态（关闭后写入本地，避免重复打扰）
+            const showRules = ref(localStorage.getItem('bingo_rules_dismissed') !== '1');
+            const dismissRules = () => {
+                showRules.value = false;
+                localStorage.setItem('bingo_rules_dismissed', '1');
+            };
 
-function generateMap() {
-    obstacles = [];
-    base = new Base(cw/2, ch - 60);
-    obstacles.push(base);
-    
-    // 基地保护墙
-    obstacles.push(new Obstacle(cw/2 - 50, ch - 60, 40, 80, 'brick'));
-    obstacles.push(new Obstacle(cw/2 + 50, ch - 60, 40, 80, 'brick'));
-    obstacles.push(new Obstacle(cw/2, ch - 110, 140, 40, 'steel'));
+            const WIN_PATTERNS = [
+                [0,1,2], [3,4,5], [6,7,8], // 横向
+                [0,3,6], [1,4,7], [2,5,8], // 纵向
+                [0,4,8], [2,4,6]           // 斜向
+            ];
 
-    // 随机散落障碍物
-    for(let i=0; i<15; i++) {
-        let x = random(100, cw-100);
-        let y = random(100, ch-200);
-        // 避免与基地太近
-        if(dist(x, y, base.x, base.y) > 200) {
-            obstacles.push(new Obstacle(x, y, random(60, 120), random(30, 60), Math.random()>0.7?'steel':'brick'));
-        }
-    }
-}
+            // 工具：触发弱提示
+            const showToast = (msg) => {
+                toastMsg.value = msg;
+                if(toastTimer) clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => { toastMsg.value = ''; }, 2500);
+            };
 
-function spawnEnemy() {
-    if(boss) return;
-    if(kills >= 30 && !boss) {
-        boss = new Boss(cw/2, -50);
-        entities.push(boss);
-        // BOSS登场特效
-        screenFlash = 0.5;
-        triggerShake(12, 0.6);
-        for (let i = 0; i < 80; i++) {
-            let angle = random(0, Math.PI * 2);
-            let speed = random(2, 8);
-            if (particles.length < MAX_PARTICLES)
-                particles.push(new Particle(cw/2, 50, COLORS.red, Math.cos(angle)*speed, Math.sin(angle)*speed, random(1, 2)));
-        }
-        return;
-    }
-    
-    let types = ['light', 'medium', 'heavy'];
-    let type = types[Math.floor(Math.random() * (wave > 3 ? 3 : 2))]; // 后期才刷重型
-    let x = Math.random() > 0.5 ? random(50, cw-50) : (Math.random()>0.5 ? -30 : cw+30);
-    let y = Math.random() > 0.5 ? -30 : random(50, ch/2);
-    
-    entities.push(new Enemy(x, y, type));
-}
+            // 核心逻辑：初始化游戏（每次打开都重新随机生成，保证九宫格内容不一致）
+            const initGame = (forceReset = false) => {
+                // 每次进入都生成全新的随机九宫格，不读取存档（避免重复看到相同内容）
+                generateGrid();
+                startTime.value = Date.now();
+                elapsedSeconds.value = 0;
+                isBingo.value = false;
+                winningLines.value = [];
+                startTimer();
+                saveState();
+            };
 
-function spawnItem(x, y) {
-    if(Math.random() < 0.3) items.push(new Item(x, y)); // 30%掉落率
-}
+            // 核心算法：从全部爱好池洗牌，抽取 9 个互不重复的随机特质
+            const generateGrid = () => {
+                // 汇总所有同学的爱好，构建去重特质池（保证每个特质都有对应同学可匹配）
+                const allHobbies = [];
+                const seen = new Set();
+                RAW_STUDENTS.forEach(student => {
+                    student.hobbies.forEach(hobby => {
+                        if (!seen.has(hobby)) {
+                            seen.add(hobby);
+                            allHobbies.push(hobby);
+                        }
+                    });
+                });
 
-function updateHUD() {
-    if(!player) return;
-    let hpStr = '❤️'.repeat(player.hp);
-    if(player.shield>0) hpStr += ` 🛡️(${player.shield})`;
-    document.getElementById('hpDisplay').innerText = `HP: ${hpStr}`;
-    
-    // 分数弹跳效果
-    let scoreEl = document.getElementById('scoreDisplay');
-    if (score !== prevScore) {
-        scoreEl.style.transform = 'scale(1.3)';
-        scoreEl.style.color = '#fff';
-        scoreEl.style.textShadow = '0 0 15px #fff';
-        setTimeout(() => {
-            scoreEl.style.transform = 'scale(1)';
-            scoreEl.style.color = '';
-            scoreEl.style.textShadow = '';
-        }, 100);
-        prevScore = score;
-    }
-    scoreEl.innerText = score;
-    
-    document.getElementById('baseDisplay').innerText = `基地: ${'🟢'.repeat(base.hp)}`;
-    
-    let ultStr = player.ultCooldown <= 0 ? '就绪(E)' : `${Math.ceil(player.ultCooldown)}s`;
-    let buffStr = player.spreadTime > 0 ? ` | 火力:${Math.ceil(player.spreadTime)}s` : '';
-    let statusEl = document.getElementById('statusDisplay');
-    statusEl.innerText = `大招: ${ultStr}${buffStr}`;
-    if (player.ultCooldown <= 0) statusEl.classList.add('ult-ready');
-    else statusEl.classList.remove('ult-ready');
-}
-
-function checkCollisions() {
-    // 子弹与实体的碰撞
-    for(let i = bullets.length-1; i>=0; i--) {
-        let b = bullets[i];
-        let hit = false;
-
-        // 打障碍物
-        for(let obs of obstacles) {
-            if(rectIntersect(b.bounds, obs.bounds)) {
-                if(obs.type === 'brick') { obs.markedForDeletion = true; hit = true; }
-                else if(obs.type === 'steel' || obs.type === 'base') hit = true;
-                
-                if(obs.type === 'base' && b.isEnemy) obs.takeDamage();
-                
-                if(hit) { createExplosion(b.x, b.y, b.color, 5); break; }
-            }
-        }
-
-        if(hit) { b.markedForDeletion = true; continue; }
-
-        if(b.isEnemy) {
-            if(player && player.invincible <= 0) {
-                let dx = Math.abs(b.x - player.x);
-                let dy = Math.abs(b.y - player.y);
-                let cr = player.r + b.r;
-                if(dx < cr && dy < cr && dx * dx + dy * dy < cr * cr) {
-                    player.takeDamage(b.damage);
-                    b.markedForDeletion = true;
-                    createExplosion(b.x, b.y, player.color);
-                    spawnDamageNumber(player.x, player.y, b.damage, COLORS.red);
+                // Fisher-Yates 洗牌算法
+                for (let i = allHobbies.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [allHobbies[i], allHobbies[j]] = [allHobbies[j], allHobbies[i]];
                 }
-            }
-        } else {
-            for(let e of entities) {
-                let dx = Math.abs(b.x - e.x);
-                let dy = Math.abs(b.y - e.y);
-                let cr = e.r + b.r;
-                if(dx < cr && dy < cr && dx * dx + dy * dy < cr * cr) {
-                    e.hp -= b.damage;
-                    e.flashTimer = 0.08;
-                    b.markedForDeletion = true;
-                    createExplosion(b.x, b.y, e.color, 10);
-                    spawnDamageNumber(b.x, b.y, b.damage, '#ffcc00');
-                    shockRings.push({ x: b.x, y: b.y, radius: 0, maxRadius: 20, color: '#fff', alpha: 0.5 });
-                    if(e.hp <= 0) {
-                        e.markedForDeletion = true;
-                        createExplosion(e.x, e.y, e.color, 30);
-                        triggerShake(5, 0.2);
-                        score += (e instanceof Boss) ? 5000 : (e.type==='heavy'?300:(e.type==='light'?100:200));
-                        kills++;
-                        if(e.type === 'heavy' || e instanceof Boss) spawnItem(e.x, e.y);
-                        if(e instanceof Boss) gameOver(true);
+
+                // 随机抽取前 9 个不重复的特质，每次调用结果都不同
+                const picked = allHobbies.slice(0, 9);
+                grid.value = picked.map(hobby => ({
+                    hobby,
+                    matched: false,
+                    selectedId: null,
+                    selectedName: null,
+                    attempts: 0,   // 已尝试次数（仅统计填错）
+                    locked: false  // 三次全错后锁死，永久不可点亮
+                }));
+            };
+
+            // 计时器格式化
+            const formattedTime = computed(() => {
+                const m = Math.floor(elapsedSeconds.value / 60).toString().padStart(2, '0');
+                const s = (elapsedSeconds.value % 60).toString().padStart(2, '0');
+                return `${m}:${s}`;
+            });
+
+            const startTimer = () => {
+                if (timerInterval.value) clearInterval(timerInterval.value);
+                timerInterval.value = setInterval(() => {
+                    elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000);
+                    saveState();
+                }, 1000);
+            };
+
+            // 交互层：开启搜寻弹窗
+            const openSelectModal = (index) => {
+                if (isBingo.value) return; 
+                if (grid.value[index].locked) {
+                    showToast('该格子已锁死，无法点亮 🔒');
+                    return;
+                }
+                activeCellIndex.value = index;
+                searchQuery.value = '';
+                showModal.value = true;
+            };
+
+            const closeModal = () => {
+                showModal.value = false;
+            };
+
+            // 过滤同学列表
+            const filteredStudents = computed(() => {
+                const q = searchQuery.value.toLowerCase().replace(/\s+/g, '');
+                if (!q) return RAW_STUDENTS;
+                return RAW_STUDENTS.filter(s => 
+                    s.name.includes(q) || s.id.includes(q)
+                );
+            });
+
+            // 规则判断：当前同学是否已在别处被选中
+            const isStudentSelected = (id) => {
+                return grid.value.some(cell => cell.selectedId === id);
+            };
+
+            // 核心交互：填入目标同学
+            const selectStudent = (student) => {
+                const cell = grid.value[activeCellIndex.value];
+                
+                // 1. 如果点击当前已经选中的人，直接收起
+                if (cell.selectedId === student.id) {
+                    closeModal(); return;
+                }
+                
+                // 2. 如果此人在其他格子已经被使用了，拦截
+                if (isStudentSelected(student.id)) return; 
+                
+                // 3. 灵魂验证：被选中的同学是否真的拥有当前格子的特质？
+                if (!student.hobbies.includes(cell.hobby)) {
+                    cell.attempts += 1;
+                    if (cell.attempts >= 3) {
+                        // 三次全错 → 永久锁死该格
+                        cell.locked = true;
+                        showToast(`三次都猜错，「${cell.hobby}」已锁死 🔒`);
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                        saveState();
+                        closeModal();
+                        return;
                     }
-                    break;
+                    showToast(`「${student.name}」没有这个特质，还剩 ${3 - cell.attempts} 次机会`);
+                    if (navigator.vibrate) navigator.vibrate([50, 50, 50]); // 错误震动反馈
+                    saveState();
+                    return;
                 }
+
+                // 4. 验证通过，填入数据
+                cell.selectedId = student.id;
+                cell.selectedName = student.name;
+                cell.matched = true;
+                
+                // Haptic 轻微触觉反馈
+                if (navigator.vibrate) navigator.vibrate(30);
+                
+                saveState();
+                closeModal();
+                checkBingo();
+            };
+
+            const clearCurrentCell = () => {
+                const cell = grid.value[activeCellIndex.value];
+                cell.selectedId = null;
+                cell.selectedName = null;
+                cell.matched = false;
+                saveState();
+                closeModal();
+            };
+
+            // 游戏判决：检查八方连线
+            const checkBingo = () => {
+                if (isBingo.value) return;
+                
+                let newWinningLines = [];
+                WIN_PATTERNS.forEach(pattern => {
+                    if (pattern.every(idx => grid.value[idx].matched)) {
+                        newWinningLines.push(pattern);
+                    }
+                });
+                
+                if (newWinningLines.length > 0) {
+                    isBingo.value = true;
+                    winningLines.value = [...new Set(newWinningLines.flat())];
+                    clearInterval(timerInterval.value);
+                    saveState();
+                    triggerBingoEffect();
+                }
+            };
+
+            const isWinningCell = (index) => {
+                return winningLines.value.includes(index);
+            };
+
+            // 结束通关动画 → 展示领奖凭证
+            const finishFanfare = () => {
+                fanfareTimers.forEach(t => clearTimeout(t));
+                fanfareTimers = [];
+                showBingoFanfare.value = false;
+                showBingoLogo.value = false;
+                prepareRewardCard();
+                showReward.value = true;
+            };
+
+            // 动效引擎：触发通关礼花 + 旋转星辰 + 大大的 BINGO
+            const triggerBingoEffect = () => {
+                // 震动律动：短-长-短
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200]);
+
+                // 播放通关动画序列（先留 0.65s 让连线高亮闪一下）
+                fanfareTimers.forEach(t => clearTimeout(t));
+                fanfareTimers = [];
+                showBingoFanfare.value = false;
+                showBingoLogo.value = false;
+                const BEAT = 650;
+                // 星辰登场
+                fanfareTimers.push(setTimeout(() => { showBingoFanfare.value = true; }, BEAT));
+                // 1.6s 后星辰收场，弹出大大的 BINGO
+                fanfareTimers.push(setTimeout(() => { showBingoLogo.value = true; }, BEAT + 1600));
+                // 之后自动进入领奖凭证
+                fanfareTimers.push(setTimeout(finishFanfare, BEAT + 4600));
+
+                // 礼花连续播放
+                const duration = 2500;
+                const end = Date.now() + duration;
+
+                (function frame() {
+                    confetti({
+                        particleCount: 6, angle: 60, spread: 55, origin: { x: 0 },
+                        colors: ['#818cf8', '#fbbf24', '#f472b6']
+                    });
+                    confetti({
+                        particleCount: 6, angle: 120, spread: 55, origin: { x: 1 },
+                        colors: ['#818cf8', '#fbbf24', '#f472b6']
+                    });
+                    if (Date.now() < end) requestAnimationFrame(frame);
+                }());
+            };
+
+            // 计算兑奖凭证数据
+            const winningHobbies = computed(() => {
+                return winningLines.value.map(idx => grid.value[idx].hobby);
+            });
+
+            const prepareRewardCard = () => {
+                const hash = Math.random().toString(16).substring(2, 6).toUpperCase();
+                verificationCode.value = `#BG-${hash}`;
+                const now = new Date();
+                completionTime.value = `${now.getFullYear().toString().slice(-2)}/${(now.getMonth()+1).toString().padStart(2,'0')}/${now.getDate().toString().padStart(2,'0')} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+            };
+
+            // 生命周期与系统重置
+            const executeReset = () => {
+                showResetConfirm.value = false;
+                localStorage.removeItem('icebreaker_bingo_state');
+                initGame(true);
+            };
+
+            const saveState = () => {
+                localStorage.setItem('icebreaker_bingo_state', JSON.stringify({
+                    grid: grid.value,
+                    startTime: startTime.value,
+                    elapsedSeconds: elapsedSeconds.value,
+                    isBingo: isBingo.value,
+                    winningLines: winningLines.value
+                }));
+            };
+
+            onMounted(() => { initGame(); });
+            onUnmounted(() => {
+                if (timerInterval.value) clearInterval(timerInterval.value);
+                fanfareTimers.forEach(t => clearTimeout(t));
+            });
+
+            return {
+                grid, formattedTime, showModal, activeCellIndex, searchQuery, filteredStudents,
+                isBingo, showReward, showResetConfirm, winningHobbies, verificationCode, completionTime, toastMsg,
+                showRules, dismissRules,
+                showBingoFanfare, showBingoLogo, finishFanfare,
+                openSelectModal, closeModal, selectStudent, clearCurrentCell, isWinningCell,
+                isStudentSelected, executeReset
             }
-        }
-    }
-    
-    // 清理已标记子弹
-    let wi = 0;
-    for (let i = 0; i < bullets.length; i++) { if (!bullets[i].markedForDeletion) bullets[wi++] = bullets[i]; }
-    bullets.length = wi;
-
-    // 玩家吃道具
-    if(player) {
-        for(let item of items) {
-            if(dist(player.x, player.y, item.x, item.y) < player.r + item.r) {
-                item.markedForDeletion = true;
-                if(item.type === 'shield') player.shield = 3;
-                if(item.type === 'spread') player.spreadTime = 8;
-                if(item.type === 'heal') player.hp = Math.min(player.maxHp, player.hp + 1);
-                score += 50;
-                createExplosion(player.x, player.y, item.color, 20);
-                updateHUD();
-            }
-        }
-    }
-}
-
-function update(dt) {
-    if(isPaused) return;
-
-    if(player) player.update(dt);
-    
-    // 演示模式：自动旋转发射光束
-    if(demoMode && player) {
-        demoAngle += dt * 2.5; // 旋转速度
-        let px = player.x + Math.cos(demoAngle) * player.r * 1.5;
-        let py = player.y + Math.sin(demoAngle) * player.r * 1.5;
-        
-        // 每次发射3发不同颜色的光束
-        if(Math.floor(demoAngle / 0.3) !== Math.floor((demoAngle - dt * 2.5) / 0.3)) {
-            bullets.push(new Bullet(px, py, demoAngle, 350, COLORS.blue, false, 1));
-            bullets.push(new Bullet(px, py, demoAngle + Math.PI*2/3, 350, COLORS.orange, false, 1));
-            bullets.push(new Bullet(px, py, demoAngle + Math.PI*4/3, 350, COLORS.red, false, 1));
-            createExplosion(px, py, '#fff', 3);
-        }
-    }
-    
-    // 敌人生成逻辑
-    if(!demoMode) {
-        enemySpawnTimer -= dt;
-        if(enemySpawnTimer <= 0) {
-            spawnEnemy();
-            enemySpawnTimer = Math.max(1, 3 - wave * 0.2);
-            if(kills > wave * 10) wave++;
-        }
-    }
-
-    entities.forEach(e => e.update(dt));
-    bullets.forEach(b => b.update(dt));
-    particles.forEach(p => p.update(dt));
-    items.forEach(i => i.update(dt));
-
-    if(!demoMode) checkCollisions();
-
-    // 震动衰减
-    if (shakeDuration > 0) {
-        shakeDuration -= dt;
-        shakeIntensity *= 0.9;
-        if (shakeDuration <= 0) shakeIntensity = 0;
-    }
-    // 全屏闪光衰减
-    if (screenFlash > 0) screenFlash = Math.max(0, screenFlash - dt * 3);
-    // 冲击波环更新
-    for (let i = shockRings.length - 1; i >= 0; i--) {
-        let ring = shockRings[i];
-        ring.radius += 200 * dt;
-        ring.alpha -= 1.5 * dt;
-        if (ring.radius >= ring.maxRadius || ring.alpha <= 0) shockRings.splice(i, 1);
-    }
-    // 伤害数字更新
-    for (let i = damageNumbers.length - 1; i >= 0; i--) {
-        let dn = damageNumbers[i];
-        dn.y += dn.vy * dt;
-        dn.vy *= 0.95;
-        dn.life -= dt;
-        if (dn.life <= 0) damageNumbers.splice(i, 1);
-    }
-
-    // 清理死亡对象（compact模式避免新数组分配）
-    let wi = 0;
-    for (let i = 0; i < entities.length; i++) { if (!entities[i].markedForDeletion) entities[wi++] = entities[i]; }
-    entities.length = wi;
-    wi = 0;
-    for (let i = 0; i < bullets.length; i++) { if (!bullets[i].markedForDeletion) bullets[wi++] = bullets[i]; }
-    bullets.length = wi;
-    wi = 0;
-    for (let i = 0; i < particles.length; i++) { if (!particles[i].markedForDeletion) particles[wi++] = particles[i]; }
-    particles.length = wi;
-    wi = 0;
-    for (let i = 0; i < items.length; i++) { if (!items[i].markedForDeletion) items[wi++] = items[i]; }
-    items.length = wi;
-    wi = 0;
-    for (let i = 0; i < obstacles.length; i++) { if (!obstacles[i].markedForDeletion) obstacles[wi++] = obstacles[i]; }
-    obstacles.length = wi;
-}
-
-function draw() {
-    ctx.clearRect(0, 0, cw, ch);
-    
-    // 屏幕震动
-    if (shakeDuration > 0) {
-        ctx.save();
-        ctx.translate((Math.random() - 0.5) * shakeIntensity * 2, (Math.random() - 0.5) * shakeIntensity * 2);
-    }
-    
-    // 绘制背景图（contain模式，完整显示不裁剪，留白）
-    if(bgImage.complete && bgImage.naturalWidth > 0) {
-        let imgRatio = bgImage.naturalWidth / bgImage.naturalHeight;
-        let canvasRatio = cw / ch;
-        let drawW, drawH, drawX, drawY;
-        if(imgRatio > canvasRatio) {
-            drawW = cw; drawH = cw / imgRatio;
-            drawX = 0; drawY = (ch - drawH) / 2;
-        } else {
-            drawH = ch; drawW = ch * imgRatio;
-            drawX = (cw - drawW) / 2; drawY = 0;
-        }
-        ctx.drawImage(bgImage, drawX, drawY, drawW, drawH);
-    }
-    
-    // 绘制网格底纹（视差效果）
-    let gx = player ? (player.x * 0.02) % 50 : 0;
-    let gy = player ? (player.y * 0.02) % 50 : 0;
-    ctx.strokeStyle = 'rgba(0, 243, 255, 0.04)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for(let i = -gx; i < cw; i += 50) { ctx.moveTo(i, 0); ctx.lineTo(i, ch); }
-    for(let i = -gy; i < ch; i += 50) { ctx.moveTo(0, i); ctx.lineTo(cw, i); }
-    ctx.stroke();
-
-    for (let i = 0; i < obstacles.length; i++) obstacles[i].draw(ctx);
-    for (let i = 0; i < items.length; i++) items[i].draw(ctx);
-    for (let i = 0; i < bullets.length; i++) bullets[i].draw(ctx);
-    for (let i = 0; i < entities.length; i++) entities[i].draw(ctx);
-    if(player) player.draw(ctx);
-    for (let i = 0; i < particles.length; i++) particles[i].draw(ctx);
-    
-    // 冲击波环
-    for (let i = 0; i < shockRings.length; i++) {
-        let ring = shockRings[i];
-        ctx.save();
-        ctx.globalAlpha = ring.alpha;
-        ctx.strokeStyle = ring.color;
-        ctx.lineWidth = 3;
-        ctx.shadowBlur = 10; ctx.shadowColor = ring.color;
-        ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2); ctx.stroke();
-        ctx.restore();
-    }
-    
-    // 伤害数字
-    for (let i = 0; i < damageNumbers.length; i++) {
-        let dn = damageNumbers[i];
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, dn.life / 0.8);
-        ctx.fillStyle = dn.color;
-        ctx.font = 'bold 16px "Courier New"';
-        ctx.textAlign = 'center';
-        ctx.shadowBlur = 8; ctx.shadowColor = dn.color;
-        ctx.fillText(dn.text, dn.x, dn.y);
-        ctx.restore();
-    }
-
-    // 全屏闪光
-    if (screenFlash > 0) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${screenFlash})`;
-        ctx.fillRect(0, 0, cw, ch);
-    }
-
-    // 屏幕特效: 受伤/无敌时边缘闪烁
-    if(player && player.invincible > 0 && Math.floor(Date.now()/100)%2===0) {
-        ctx.fillStyle = player.hp <= 1 ? 'rgba(255,0,0,0.1)' : 'rgba(0,243,255,0.1)';
-        ctx.fillRect(0,0,cw,ch);
-    }
-    
-    // 演示模式提示
-    if(demoMode) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, ch-40, cw, 40);
-        ctx.fillStyle = COLORS.green; ctx.font="18px 'Courier New'"; ctx.textAlign="center";
-        ctx.fillText("🔫 光束演示中 — 按任意键退出", cw/2, ch-12);
-        ctx.textAlign="left";
-    }
-    
-    // 恢复震动偏移
-    if (shakeDuration > 0) ctx.restore();
-}
-
-function loop(timestamp) {
-    if (!lastTime) lastTime = timestamp;
-    const dt = Math.min((timestamp - lastTime) / 1000, 0.1); // 限制最大dt防穿模
-    lastTime = timestamp;
-
-    if (gameState === 'playing') {
-        update(dt);
-        draw();
-    }
-    gameLoopId = requestAnimationFrame(loop);
-}
-
-// ================= 流程控制 =================
-
-function startGame() {
-    document.getElementById('startScreen').classList.add('hidden');
-    document.getElementById('gameOverScreen').classList.add('hidden');
-    document.getElementById('defeatCG').classList.add('hidden');
-    
-    generateMap();
-    player = new Player(cw/2, ch - 150);
-    entities = []; bullets = []; particles = []; items = []; boss = null;
-    score = 0; kills = 0; wave = 1; enemySpawnTimer = 2;
-    shakeIntensity = 0; shakeDuration = 0; screenFlash = 0;
-    shockRings = []; damageNumbers = []; prevScore = 0;
-    gameState = 'playing'; isPaused = false;
-    
-    updateHUD();
-    if(!gameLoopId) requestAnimationFrame(loop);
-}
-
-function togglePause() {
-    if(gameState !== 'playing') return;
-    isPaused = !isPaused;
-    if(isPaused) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,cw,ch);
-        ctx.fillStyle = COLORS.blue; ctx.font="40px Arial"; ctx.textAlign="center";
-        ctx.fillText("系统暂停", cw/2, ch/2); ctx.textAlign="left";
-    } else {
-        lastTime = performance.now(); // 避免暂停后dt过大
-    }
-}
-
-function gameOver(isWin) {
-    gameState = 'over';
-    player = null;
-    
-    if(!isWin) {
-        // 战败：先展示全屏CG
-        let cg = document.getElementById('defeatCG');
-        cg.classList.remove('hidden');
-        cg.onclick = () => {
-            cg.classList.add('hidden');
-            showGameOverScreen(false);
-        };
-    } else {
-        showGameOverScreen(true);
-    }
-}
-
-function showGameOverScreen(isWin) {
-    document.getElementById('gameOverScreen').classList.remove('hidden');
-    document.getElementById('endTitle').innerText = isWin ? "任务完成 / 胜利" : "系统瘫痪 / 失败";
-    document.getElementById('endTitle').style.color = isWin ? COLORS.blue : COLORS.red;
-    document.getElementById('endTitle').style.textShadow = `0 0 20px ${isWin ? COLORS.blue : COLORS.red}`;
-    
-    document.getElementById('finalScore').innerText = score;
-    let high = localStorage.getItem('tankHighscore') || 0;
-    if(score > high) { high = score; localStorage.setItem('tankHighscore', high); }
-    document.getElementById('highScore').innerText = high;
-}
-
-// 光束演示模式
-let demoMode = false;
-let demoAngle = 0;
-let demoExitListener = null;
-
-function startDemo() {
-    document.getElementById('startScreen').classList.add('hidden');
-    document.getElementById('gameOverScreen').classList.add('hidden');
-    document.getElementById('defeatCG').classList.add('hidden');
-    
-    obstacles = [];
-    entities = []; bullets = []; particles = []; items = []; boss = null;
-    score = 0; kills = 0; wave = 1; enemySpawnTimer = 999;
-    shakeIntensity = 0; shakeDuration = 0; screenFlash = 0;
-    shockRings = []; damageNumbers = []; prevScore = 0;
-    demoMode = true; demoAngle = 0;
-    gameState = 'playing'; isPaused = false;
-    lastTime = 0;
-    
-    player = new Player(cw/2, ch/2);
-    player.invincible = 999;
-    
-    updateHUD();
-    if(!gameLoopId) requestAnimationFrame(loop);
-    
-    // 按任意键退出演示
-    demoExitListener = (e) => {
-        if(e.key && !e.key.startsWith('F')) {
-            exitDemo();
         }
     };
-    window.addEventListener('keydown', demoExitListener);
-}
 
-function exitDemo() {
-    demoMode = false;
-    if(demoExitListener) {
-        window.removeEventListener('keydown', demoExitListener);
-        demoExitListener = null;
-    }
-    gameState = 'start';
-    player = null;
-    bullets = []; particles = [];
-    shockRings = []; damageNumbers = []; screenFlash = 0;
-    shakeIntensity = 0; shakeDuration = 0;
-    document.getElementById('startScreen').classList.remove('hidden');
-}
-
-function resetGame() {
-    demoMode = false;
-    if(demoExitListener) {
-        window.removeEventListener('keydown', demoExitListener);
-        demoExitListener = null;
-    }
-    startGame();
-}
-
-// 初始化排行
-document.getElementById('highScore').innerText = localStorage.getItem('tankHighscore') || 0;
-
+    createApp(App).mount('#app');
 </script>
 </body>
 </html>
